@@ -14,11 +14,12 @@
 #define PACKET_ENCODED_MAX_LENGTH (PACKET_DECODED_MAX_LENGTH + 3)
 
 // Stuffing + Number + Type + Meta + Length + Data + Checksum + Frame
-#define RACKET_RAW_MAX_LENGTH (PACKET_ENCODED_MAX_LENGTH + 1)
+#define PACKET_RAW_MAX_LENGTH (PACKET_ENCODED_MAX_LENGTH + 1)
 
 // Declaration of system used message bytes
 extern const uint8_t ACK;
 extern const uint8_t FRAME;
+extern const uint8_t URP_HEADER;
 
 // Packet Formast:
 //

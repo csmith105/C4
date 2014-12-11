@@ -14,7 +14,7 @@
 using namespace std;
 
 // Const byte values for internal protocol messages
-const uint8_t ACK = 0xAA, FRAME = 0x00;
+const uint8_t ACK = 0xAA, FRAME = 0x00, URP_HEADER = 0xFF;
 
 // Non-public method stubs
 void updatePort(C4Port * port);
@@ -272,7 +272,22 @@ bool decodePacket(Packet * packet, uint8_t * buffer, uint8_t length) {
 }
 
 // Returns true on packet send, false otherwise
-bool sendPacket(C4Port * port, Packet * packet) {
+void sendUnreliablePacket(C4Port * port, Packet * packet) {
+    
+    uint8_t buffer[PACKET_RAW_MAX_LENGTH];
+    uint8_t length;
+    
+    length = encodePacket(packet, buffer + 1) + 1;
+    
+    buffer[0] = URP_HEADER;
+    
+    // Send it
+    writeDataToPort(port, buffer, length);
+    
+}
+
+// Returns true on packet send, false otherwise
+bool sendReliablePacket(C4Port * port, Packet * packet) {
 
 	// We can only send packets when a slot is empty
     if(!isSlotAve(port)) {
@@ -281,6 +296,7 @@ bool sendPacket(C4Port * port, Packet * packet) {
     }
     
 	port->txLength[port->pendingMax - 1] = encodePacket(packet, port->txBuffer[port->pendingMax - 1] + 1) + 1;
+    
     port->txBuffer[port->pendingMax - 1][0] = port->pendingMax;
     
     //cout << dec << port->txLength << endl;
@@ -299,30 +315,25 @@ bool sendPacket(C4Port * port, Packet * packet) {
 
 void writeDataToPort(C4Port * port, uint8_t * data, size_t length) {
     
-    //cout << "Writting " << (unsigned) length << " bytes to file." << endl;
-    
     // Write the packet to the source stream
     if(write(port->fileDescriptor, data, length) == -1 && write(port->fileDescriptor, data, 1) == -1)
         cerr << "Write error: " << strerror(errno) << endl;
     
-    //for(uint8_t i = 0; i < length; ++i)
-    //    cout << superhex << (unsigned) data[i] << " ";
-    
-    //cout << endl << endl;
-    
 }
 
-void resendPacket(C4Port * port, uint8_t slot) {
+void resendReliablePacket(C4Port * port, uint8_t slot) {
+    
 	writeDataToPort(port, port->txBuffer[slot], port->txLength[slot]);
+    
 }
 
 inline bool isACK(uint8_t * data, uint8_t length) {
+    
     return (length == 3 && data[0] == ACK);
+    
 }
 
 void sendACK(C4Port * port, uint8_t number) {
-    
-    //cout << "Sending ACK" << endl;
     
     uint8_t data[] = { ACK, number, FRAME };
     
@@ -333,11 +344,16 @@ void sendACK(C4Port * port, uint8_t number) {
 // Must clear the rx buffer on completion
 void evaluateRxData(C4Port * port) {
     
+    //cout << "RXD:\t" << endl;
+    //for(uint8_t i = 0; i < port->rxLength; ++i)
+    //    cout << superhex << (unsigned) port->rxBuffer[i] << " ";
+    //cout << endl << endl;
+    
 	if(isACK(port->rxBuffer, port->rxLength)) {
         
         //cout << "Recieved ACK for packet #" << (unsigned) port->rxBuffer[1] << endl;
         
-        // Is this the packet we're expecting?
+        // Is this the ACK we're expecting?
         if(port->pendingMin == port->rxBuffer[1]) {
             
             port->pendingMin = getNextPacketNumber(port->pendingMin);
@@ -357,10 +373,20 @@ void evaluateRxData(C4Port * port) {
 
 		if(decodePacket(&packet, port->rxBuffer + 1, port->rxLength - 1)) {
             
-            // Is this the packet we're expecting?
-            if(port->rxBuffer[0] == port->nextExpectedPacketNum) {
+            if(port->rxBuffer[0] == URP_HEADER) {
                 
-                //cout << "REP\t" << (unsigned) port->rxBuffer[0] << endl;
+                // Is this an unreliable packet?
+                
+                cout << "Rec URP" << endl;
+                
+                // Call the packet handler
+                port->packetHandler(packet);
+                
+            } else if(port->rxBuffer[0] == port->nextExpectedPacketNum) {
+                
+                // Is this the packet we're expecting?
+                
+                cout << "REC\t" << (unsigned) port->rxBuffer[0] << endl;
                 
                 // Good packet - Send ACK
                 sendACK(port, port->rxBuffer[0]);
@@ -388,9 +414,8 @@ void evaluateRxData(C4Port * port) {
 
 void updatePort(C4Port * port) {
     
-    // Attempt to read in however many bytes are left in our packet buffer, or until we reach a
-    // packet frame or until there are no more bytes to read
-    while(port->rxLength < RACKET_RAW_MAX_LENGTH) {
+    // Attempt to read in however many bytes are left in our packet buffer
+    while(port->rxLength < PACKET_RAW_MAX_LENGTH) {
         
         ssize_t readVal = read(port->fileDescriptor, port->rxBuffer + port->rxLength, 1);
         
@@ -405,18 +430,11 @@ void updatePort(C4Port * port) {
         ++(port->rxLength);
         
         // Did we just recieve a packet framing byte?
-        if(port->rxBuffer[port->rxLength - 1] == FRAME) {
-            
-            // Evaluate the data
-            evaluateRxData(port);
-            
-            break;
-            
-        }
+        if(port->rxBuffer[port->rxLength - 1] == FRAME) evaluateRxData(port);
         
     }
     
-    if(port->rxLength >= RACKET_RAW_MAX_LENGTH) {
+    if(port->rxLength >= PACKET_RAW_MAX_LENGTH) {
         
         // We've overflowed the buffer, clear it - data loss will happen
         port->rxLength = 0;

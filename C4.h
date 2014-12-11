@@ -10,10 +10,10 @@
 #include "Packet.h"
 
 // How large is our sliding window?
-#define TX_WINDOW_SIZE 10
+#define TX_WINDOW_SIZE 8
 
 // How often is the
-#define UPDATE_INTERVAL 100
+#define UPDATE_INTERVAL 1000
 
 #define superhex uppercase << setfill('0') << setw(2) << hex
 
@@ -23,13 +23,13 @@ typedef struct {
     int fileDescriptor;
 
 	// Recieved byte buffer, used to store the incomming bytes of the next packet
-	uint8_t rxBuffer[RACKET_RAW_MAX_LENGTH];
+	uint8_t rxBuffer[PACKET_RAW_MAX_LENGTH];
 	uint16_t rxLength;
     
     uint8_t nextExpectedPacketNum;
 
 	// Packet either to be sent or currently waiting for ACK
-	uint8_t txBuffer[TX_WINDOW_SIZE][RACKET_RAW_MAX_LENGTH];
+	uint8_t txBuffer[TX_WINDOW_SIZE][PACKET_RAW_MAX_LENGTH];
 	uint16_t txLength[TX_WINDOW_SIZE];
     
     // "Highest" pending packet number
@@ -72,8 +72,10 @@ bool decodePacket(Packet * packet, uint8_t * buffer, uint8_t length);
 
 void writeDataToPort(C4Port * port, uint8_t * data, size_t length);
 
-bool sendPacket(C4Port * port, Packet * packet);
+bool sendReliablePacket(C4Port * port, Packet * packet);
 
-void resendPacket(C4Port * port);
+void sendUnreliablePacket(C4Port * port, Packet * packet);
+
+void resendReliablePacket(C4Port * port);
 
 #endif /* C4_H */

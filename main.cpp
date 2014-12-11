@@ -85,11 +85,19 @@ int main(int argc, const char * argv[]) {
         
         packet.length = data[0] % 17;
         
-        if(sendPacket(port2, &packet)) {
+        if(i % 2 && sendReliablePacket(port2, &packet)) {
+            cout << "Sending R" << endl;
             ++totalPackets;
             ++packetsSentSinceLastSecond;
         }
         
+        if((i % 2) + 1) {
+            cout << "Sending U" << endl;
+            sendUnreliablePacket(port2, &packet);
+            ++totalPackets;
+            ++packetsSentSinceLastSecond;
+        }
+
         ++i;
         
         if(i == 10000) {
@@ -98,22 +106,9 @@ int main(int argc, const char * argv[]) {
             i = 0;
         }
         
-        usleep(100);
+        usleep(100000);
         
     }
-    
-    
-    /*for(int i = 0; i <= PACKET_DATA_MAX_LENGTH; ++i) {
-        
-        packet.length = i;
-        
-        if(sendPacket(port2, &packet)) {
-            cout << "Packet of length " << dec << i << " sent" << endl;
-        } else {
-            cout << "Packet of length " << dec << i << " NOT sent" << endl;
-        }
-        usleep(40000);
-    }*/
     
     pthread_join(thread1, NULL);
     pthread_join(thread2, NULL);
