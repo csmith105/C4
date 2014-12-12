@@ -84,6 +84,7 @@ bool initC4Port(C4Port * port, char * filename, void (*packetHandler)(Packet pac
     port->pendingMin = 1;
     port->pendingMax = 1;
     port->rxLength = 0;
+    port->ticksSinceLastACK = 0;
     
     return true;
     
@@ -321,12 +322,6 @@ void writeDataToPort(C4Port * port, uint8_t * data, size_t length) {
     
 }
 
-void resendReliablePacket(C4Port * port, uint8_t slot) {
-    
-	writeDataToPort(port, port->txBuffer[slot], port->txLength[slot]);
-    
-}
-
 inline bool isACK(uint8_t * data, uint8_t length) {
     
     return (length == 3 && data[0] == ACK);
@@ -353,6 +348,9 @@ void evaluateRxData(C4Port * port) {
         
         //cout << "Recieved ACK for packet #" << (unsigned) port->rxBuffer[1] << endl;
         
+        // Reset timeout
+        port->ticksSinceLastACK = 0;
+        
         // Is this the ACK we're expecting?
         if(port->pendingMin == port->rxBuffer[1]) {
             
@@ -360,7 +358,7 @@ void evaluateRxData(C4Port * port) {
             
         } else {
             
-            cerr << "Recieved not expected, rec: " << (unsigned) port->rxBuffer[2] << ", exp: " << (unsigned) port->nextExpectedPacketNum << "!!!!!!!!!!!!!!!!!" << endl;
+            cerr << "Recieved not expected, rec: " << (unsigned) port->rxBuffer[1] << ", exp: " << (unsigned) port->pendingMin << "!!!!!!!!!!!!!!!!!" << endl;
             
         }
 
@@ -377,7 +375,7 @@ void evaluateRxData(C4Port * port) {
                 
                 // Is this an unreliable packet?
                 
-                cout << "Rec URP" << endl;
+                //cout << "Rec URP" << endl;
                 
                 // Call the packet handler
                 port->packetHandler(packet);
@@ -386,7 +384,7 @@ void evaluateRxData(C4Port * port) {
                 
                 // Is this the packet we're expecting?
                 
-                cout << "REC\t" << (unsigned) port->rxBuffer[0] << endl;
+                //cout << "REC\t" << (unsigned) port->rxBuffer[0] << endl;
                 
                 // Good packet - Send ACK
                 sendACK(port, port->rxBuffer[0]);
@@ -434,6 +432,7 @@ void updatePort(C4Port * port) {
         
     }
     
+    // Did we fill the RX buffer?
     if(port->rxLength >= PACKET_RAW_MAX_LENGTH) {
         
         // We've overflowed the buffer, clear it - data loss will happen
@@ -442,6 +441,40 @@ void updatePort(C4Port * port) {
         cerr << "ERR: RX Buffer overflow, clearing (data will be lost!)\r\n" << endl;
         
     }
+    
+    // Are packets pending?
+    if(port->pendingMin != port->pendingMax)
+        ++(port->ticksSinceLastACK);
+    
+    // Do we need to resend packets?
+    if(port->ticksSinceLastACK > PACKET_TIMEOUT) {
+        
+        cerr << "TIMEOUT: Resending packets " << (unsigned) port->pendingMin << " - " << (unsigned) port->pendingMax << endl;
+        
+        // We must assume that a packet was lost and that all other sent packets were rejected
+        // so we must resend all of the packets currently pending
+        
+        // Set i to the first packet number
+        uint8_t i = port->pendingMin;
+        uint8_t stop = getNextPacketNumber(port->pendingMax);
+        
+        do {
+            
+            cout << "Resending: " << (unsigned) port->txBuffer[i - 1][0] << endl;
+            
+            // Resend a packet
+            writeDataToPort(port, port->txBuffer[i - 1], port->txLength[i - 1]);
+            
+            // Increment i to the next packet number
+            i = getNextPacketNumber(i);
+            
+        } while(i != stop);
+        
+        // Reset timeout
+        port->ticksSinceLastACK = 0;
+        
+    }
+    
     
 }
 

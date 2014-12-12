@@ -12,8 +12,9 @@
 // How large is our sliding window?
 #define TX_WINDOW_SIZE 8
 
-// How often is the
+// Timing (in uS)
 #define UPDATE_INTERVAL 1000
+#define PACKET_TIMEOUT 1000
 
 #define superhex uppercase << setfill('0') << setw(2) << hex
 
@@ -27,15 +28,17 @@ typedef struct {
 	uint16_t rxLength;
     
     uint8_t nextExpectedPacketNum;
+    
+    uint16_t ticksSinceLastACK;
 
 	// Packet either to be sent or currently waiting for ACK
 	uint8_t txBuffer[TX_WINDOW_SIZE][PACKET_RAW_MAX_LENGTH];
 	uint16_t txLength[TX_WINDOW_SIZE];
     
-    // "Highest" pending packet number
+    // Highest pending packet number, IE newest pending packet
     uint8_t pendingMax;
     
-    // "Lowest" pending packet number
+    // Lowest pending packet number, IE oldest pending packet
     uint8_t pendingMin;
 
 	// Packet handler function, will be called whenever a valid packet is recieved
@@ -75,7 +78,5 @@ void writeDataToPort(C4Port * port, uint8_t * data, size_t length);
 bool sendReliablePacket(C4Port * port, Packet * packet);
 
 void sendUnreliablePacket(C4Port * port, Packet * packet);
-
-void resendReliablePacket(C4Port * port);
 
 #endif /* C4_H */

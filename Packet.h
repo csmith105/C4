@@ -30,7 +30,7 @@ extern const uint8_t URP_HEADER;
 //
 // Unreliable packet (will not be ACK'd or resent):
 // ---------------------------------------------------------------------------------
-// | 0xFF | Stuffing | Type | Meta | Length | Data ... | Checksum | Frame (0x00) |
+// |  0xFF  | Stuffing | Type | Meta | Length | Data ... | Checksum | Frame (0x00) |
 // ---------------------------------------------------------------------------------
 //
 // The entire packet is encoded in COBS during transmission, eliminating any zero values,

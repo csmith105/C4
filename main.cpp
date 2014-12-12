@@ -78,6 +78,7 @@ int main(int argc, const char * argv[]) {
     int fd = open("/dev/random", O_RDONLY);
     
     int i = 0;
+    
     while(true) {
         
         // Populate data randomly
@@ -86,27 +87,27 @@ int main(int argc, const char * argv[]) {
         packet.length = data[0] % 17;
         
         if(i % 2 && sendReliablePacket(port2, &packet)) {
-            cout << "Sending R" << endl;
+            //cout << "Sending R" << endl;
             ++totalPackets;
             ++packetsSentSinceLastSecond;
         }
         
-        if((i % 2) + 1) {
-            cout << "Sending U" << endl;
+        /*if((i % 2) + 1) {
+            //cout << "Sending U" << endl;
             sendUnreliablePacket(port2, &packet);
             ++totalPackets;
             ++packetsSentSinceLastSecond;
-        }
+        }*/
 
         ++i;
         
-        if(i == 10000) {
+        if(i == 1000) {
             cout << setw(7) << packetsSentSinceLastSecond << " pps | " << setw(10) << totalPackets << " total" << endl;
             packetsSentSinceLastSecond = 0;
             i = 0;
         }
         
-        usleep(100000);
+        usleep(1000);
         
     }
     
