@@ -8,59 +8,46 @@
 #include <unistd.h>
 
 #include "C4.h"
+#include "Commands.h"
 
 using namespace std;
 
-void packetHandler(Packet packet) {
-    
-    //cout << "TYPE:\t\t" << superhex << (unsigned) packet.type << endl;
-    //cout << "META:\t\t" << superhex << (unsigned) packet.meta << endl;
-    //cout << "LENGTH:\t\t" << superhex << (unsigned) packet.length << endl;
-    //cout << "DATA:\t\t";
-    
-    //for(uint8_t i = 0; i < packet.length; ++i)
-    //    cout << superhex << (unsigned) packet.data[i] << " ";
-    
-    //cout << endl << endl;
-    
-    delete[] packet.data;
-
-}
-
-int main(int argc, const char * argv[]) {
+int main(int argc, char * argv[2]) {
     
     // Cody's COBS Communication Code
     
     C4Port * port1 = new C4Port;
-    C4Port * port2 = new C4Port;
+    //C4Port * port2 = new C4Port;
     
-    char fileToOpen1[] = "/dev/tty.usbserial-A603UC7L";
-    char fileToOpen2[] = "/dev/tty.usbserial-A603UBJX";
+    if(argc == 1)
+        argv[1] = "/dev/tty.usbserial-A603UC7L";
     
-    if(!initC4Port(port1, fileToOpen1, packetHandler)) {
+    //char fileToOpen2[] = "/dev/tty.usbserial-A603UBJX";
+    
+    if(!initC4Port(port1, argv[1], packetHandler)) {
         cout << "Failed to init port1" << endl;
         return 1;
     }
     
-    if(!initC4Port(port2, fileToOpen2, packetHandler)) {
+    /*if(!initC4Port(port2, fileToOpen2, packetHandler)) {
         cout << "Failed to init port2" << endl;
         return 1;
-    }
+    }*/
     
-    pthread_t thread1, thread2;
+    pthread_t thread1;
     
     int rc1 = pthread_create(&thread1, NULL, updateThread, (void *) port1);
-    int rc2 = pthread_create(&thread2, NULL, updateThread, (void *) port2);
+    //int rc2 = pthread_create(&thread2, NULL, updateThread, (void *) port2);
     
     if(rc1) {
         printf("ERROR; return code from pthread_create() is %d\n", rc1);
         exit(-1);
     }
     
-    if(rc2) {
+    /*if(rc2) {
         printf("ERROR; return code from pthread_create() is %d\n", rc2);
         exit(-1);
-    }
+    }*/
     
     uint8_t data[16];
     
@@ -86,39 +73,31 @@ int main(int argc, const char * argv[]) {
         
         packet.length = data[0] % 17;
         
-        if(i % 2 && sendReliablePacket(port2, &packet)) {
-            //cout << "Sending R" << endl;
+        if(sendReliablePacket(port1, &packet)) {
             ++totalPackets;
             ++packetsSentSinceLastSecond;
         }
-        
-        /*if((i % 2) + 1) {
-            //cout << "Sending U" << endl;
-            sendUnreliablePacket(port2, &packet);
-            ++totalPackets;
-            ++packetsSentSinceLastSecond;
-        }*/
 
         ++i;
         
-        if(i == 1000) {
-            cout << setw(7) << packetsSentSinceLastSecond << " pps | " << setw(10) << totalPackets << " total" << endl;
+        if(i >= 1000/3) {
+            cout << dec << setfill(' ') << setw(7) << (unsigned) packetsSentSinceLastSecond << " pps | " << setw(10) << (unsigned) totalPackets << " total" << endl;
             packetsSentSinceLastSecond = 0;
             i = 0;
         }
         
-        usleep(1000);
+        usleep(3000);
         
     }
     
     pthread_join(thread1, NULL);
-    pthread_join(thread2, NULL);
+    //pthread_join(thread2, NULL);
     
     close(port1->fileDescriptor);
-    close(port2->fileDescriptor);
+    //close(port2->fileDescriptor);
     
     delete port1;
-    delete port2;
+    //delete port2;
     
     return 0;
     

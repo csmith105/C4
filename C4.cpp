@@ -16,9 +16,6 @@ using namespace std;
 // Const byte values for internal protocol messages
 const uint8_t ACK = 0xAA, FRAME = 0x00, URP_HEADER = 0xFF;
 
-// Non-public method stubs
-void updatePort(C4Port * port);
-
 bool initC4Port(C4Port * port, char * filename, void (*packetHandler)(Packet packet)) {
     
     // Open the given file as read/write, don't become the controlling terminal, don't block
@@ -39,11 +36,8 @@ bool initC4Port(C4Port * port, char * filename, void (*packetHandler)(Packet pac
     }
     
     // Baud
-    //cfsetispeed(&tty, B115200);
-    //cfsetospeed(&tty, B115200);
     cfsetispeed(&tty, B230400);
     cfsetospeed(&tty, B230400);
-    
     
     // Character size
     tty.c_cflag &= ~CSIZE;
@@ -77,12 +71,17 @@ bool initC4Port(C4Port * port, char * filename, void (*packetHandler)(Packet pac
         return false;
     }
     
+    // Seek to end of file
+    lseek(fileDescriptor, 0, SEEK_END);
+    
     // Setup genaric port stuff
     port->fileDescriptor = fileDescriptor;
     port->packetHandler = packetHandler;
-    port->nextExpectedPacketNum = 1;
-    port->pendingMin = 1;
-    port->pendingMax = 1;
+    port->nextExpectedPacketNum = 0;
+    
+    port->windowSize = 0;
+    port->lowestSlot = 0;
+    
     port->rxLength = 0;
     port->ticksSinceLastACK = 0;
     
@@ -90,16 +89,38 @@ bool initC4Port(C4Port * port, char * filename, void (*packetHandler)(Packet pac
     
 }
 
-inline uint8_t getNextPacketNumber(uint8_t previous) {
+inline uint8_t getNextSlot(uint8_t previous) {
     
-    // Generates numbers from 1 to TX_WINDOW_SIZE
-    return (previous % TX_WINDOW_SIZE) + 1;
+    // Generates numbers from 0 to TX_WINDOW_SIZE - 1
+    return ((previous + 1) % TX_WINDOW_SIZE);
     
 }
 
 inline bool isSlotAve(C4Port * port) {
     
-    return (getNextPacketNumber(port->pendingMax) != port->pendingMin);
+    return (port->windowSize != TX_WINDOW_SIZE);
+    
+}
+
+void writeDataToPort(C4Port * port, uint8_t * data, size_t length) {
+    
+    // Write the packet to the source stream
+    if(write(port->fileDescriptor, data, length) == -1 && write(port->fileDescriptor, data, 1) == -1)
+        cerr << "Write error: " << strerror(errno) << endl;
+    
+}
+
+// Generates a checksum for the given data
+// Returns the checksum byte
+inline uint8_t computeChecksum(uint8_t * data, uint8_t length) {
+    
+    // Init the checksum
+    uint8_t checksum = 0;
+    
+    // Process all the bytes
+    for(uint8_t i = 0; i < length; ++i) checksum ^= data[i];
+    
+    return checksum;
     
 }
 
@@ -108,21 +129,6 @@ inline bool validateChecksum(uint8_t * data, uint8_t length, uint8_t providedChe
 
 	// Does the computed checksum match the provided checksum?
 	return (computeChecksum(data, length) == providedChecksum);
-
-}
-
-// Generates a checksum for the given data
-// Returns the checksum byte
-inline uint8_t computeChecksum(uint8_t * data, uint8_t length) {
-    
-	// Init the checksum
-	uint8_t checksum = 0;
-
-	// Process all the bytes
-    for(uint8_t i = 0; i < length; ++i)
-        checksum ^= data[i];
-
-	return checksum;
 
 }
 
@@ -287,39 +293,35 @@ void sendUnreliablePacket(C4Port * port, Packet * packet) {
     
 }
 
+uint8_t getNextAveSlot(C4Port * port) {
+    
+    return (port->lowestSlot + port->windowSize) % TX_WINDOW_SIZE;
+    
+}
+
 // Returns true on packet send, false otherwise
 bool sendReliablePacket(C4Port * port, Packet * packet) {
 
 	// We can only send packets when a slot is empty
-    if(!isSlotAve(port)) {
-        //cout << "Cannot send packet, all slots filled" << endl;
-        return false;
-    }
+    if(!isSlotAve(port)) return false;
     
-	port->txLength[port->pendingMax - 1] = encodePacket(packet, port->txBuffer[port->pendingMax - 1] + 1) + 1;
+	port->txLength[getNextAveSlot(port)] =
+        encodePacket(packet, port->txBuffer[getNextAveSlot(port)] + 1) + 1;
     
-    port->txBuffer[port->pendingMax - 1][0] = port->pendingMax;
+    port->txBuffer[getNextAveSlot(port)][0] = getNextAveSlot(port) + 1;
     
     //cout << dec << port->txLength << endl;
     
     //cout << "S\t" << (unsigned) port->pendingMax << endl;
     
 	// Send it
-	writeDataToPort(port, port->txBuffer[port->pendingMax - 1], port->txLength[port->pendingMax - 1]);
+	writeDataToPort(port, port->txBuffer[getNextAveSlot(port)], port->txLength[getNextAveSlot(port)]);
     
-    // Increment pendingMax, since we just stored a new packet
-    port->pendingMax = getNextPacketNumber(port->pendingMax);
+    // Increment pendingMax, since we are going to store a new packet
+    ++ port->windowSize;
     
 	return true;
 
-}
-
-void writeDataToPort(C4Port * port, uint8_t * data, size_t length) {
-    
-    // Write the packet to the source stream
-    if(write(port->fileDescriptor, data, length) == -1 && write(port->fileDescriptor, data, 1) == -1)
-        cerr << "Write error: " << strerror(errno) << endl;
-    
 }
 
 inline bool isACK(uint8_t * data, uint8_t length) {
@@ -352,13 +354,16 @@ void evaluateRxData(C4Port * port) {
         port->ticksSinceLastACK = 0;
         
         // Is this the ACK we're expecting?
-        if(port->pendingMin == port->rxBuffer[1]) {
+        if((port->lowestSlot + 1) == port->rxBuffer[1]) {
             
-            port->pendingMin = getNextPacketNumber(port->pendingMin);
+            //cout << "Recieved ACK for packet #" << (unsigned) port->rxBuffer[1] << endl;
+            
+            port->lowestSlot = getNextSlot(port->lowestSlot);
+            -- port->windowSize;
             
         } else {
             
-            cerr << "Recieved not expected, rec: " << (unsigned) port->rxBuffer[1] << ", exp: " << (unsigned) port->pendingMin << "!!!!!!!!!!!!!!!!!" << endl;
+            cerr << "ACK not expected, rec: " << (unsigned) port->rxBuffer[1] << ", exp: " << (unsigned) port->lowestSlot + 1 << endl;
             
         }
 
@@ -366,8 +371,6 @@ void evaluateRxData(C4Port * port) {
         
 		// We've recieved something that isn't an ACK, decode it
 		Packet packet;
-        
-        //cout << "Recieving packet..." << endl;
 
 		if(decodePacket(&packet, port->rxBuffer + 1, port->rxLength - 1)) {
             
@@ -375,29 +378,25 @@ void evaluateRxData(C4Port * port) {
                 
                 // Is this an unreliable packet?
                 
-                //cout << "Rec URP" << endl;
-                
                 // Call the packet handler
                 port->packetHandler(packet);
                 
-            } else if(port->rxBuffer[0] == port->nextExpectedPacketNum) {
+            } else if(port->rxBuffer[0] == (port->nextExpectedPacketNum + 1)) {
                 
-                // Is this the packet we're expecting?
-                
-                //cout << "REC\t" << (unsigned) port->rxBuffer[0] << endl;
+                // This is the packet we're expecting
                 
                 // Good packet - Send ACK
                 sendACK(port, port->rxBuffer[0]);
                 
                 // Advance nextExpectedPacketNum
-                port->nextExpectedPacketNum = getNextPacketNumber(port->nextExpectedPacketNum);
+                port->nextExpectedPacketNum = getNextSlot(port->nextExpectedPacketNum);
                 
                 // Call the packet handler
                 port->packetHandler(packet);
                 
             } else {
                 
-                cerr << "Good packet, but it is not the expected value. Exp: " << (unsigned) port->nextExpectedPacketNum << " Rec: " << (unsigned) port->rxBuffer[0] << endl;
+                cerr << "Good packet, but it is not the expected value. Exp: " << (unsigned) (port->nextExpectedPacketNum + 1) << " Rec: " << (unsigned) port->rxBuffer[0] << endl;
                 
             }
 
@@ -443,32 +442,29 @@ void updatePort(C4Port * port) {
     }
     
     // Are packets pending?
-    if(port->pendingMin != port->pendingMax)
+    if(port->windowSize)
         ++(port->ticksSinceLastACK);
     
     // Do we need to resend packets?
     if(port->ticksSinceLastACK > PACKET_TIMEOUT) {
         
-        cerr << "TIMEOUT: Resending packets " << (unsigned) port->pendingMin << " - " << (unsigned) port->pendingMax << endl;
+        cerr << "TIMEOUT: Resending " << (unsigned) port->windowSize << " packets starting at " << (unsigned) port->lowestSlot << endl;
         
         // We must assume that a packet was lost and that all other sent packets were rejected
         // so we must resend all of the packets currently pending
         
-        // Set i to the first packet number
-        uint8_t i = port->pendingMin;
-        uint8_t stop = getNextPacketNumber(port->pendingMax);
+        uint8_t slot = port->lowestSlot;
         
-        do {
+        for(uint8_t i = 0; i < port->windowSize; ++i) {
             
-            cout << "Resending: " << (unsigned) port->txBuffer[i - 1][0] << endl;
+            //cout << "Resending: " << (unsigned) slot << " | " << (unsigned) port->txBuffer[slot][0] << endl;
             
             // Resend a packet
-            writeDataToPort(port, port->txBuffer[i - 1], port->txLength[i - 1]);
+            writeDataToPort(port, port->txBuffer[slot], port->txLength[slot]);
             
-            // Increment i to the next packet number
-            i = getNextPacketNumber(i);
+            slot = getNextSlot(slot);
             
-        } while(i != stop);
+        }
         
         // Reset timeout
         port->ticksSinceLastACK = 0;
