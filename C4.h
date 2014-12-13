@@ -22,6 +22,8 @@
 #define superhex uppercase << setfill('0') << setw(2) << hex
 
 typedef struct {
+    
+    pthread_mutex_t lock;
 
 	// Where are we reading / writting to / from?
     int fileDescriptor;

@@ -10,10 +10,10 @@
 // Type + Meta + Length + Data
 #define PACKET_DECODED_MAX_LENGTH (PACKET_DATA_MAX_LENGTH + 3)
 
-// Stuffing + Number + Type + Meta + Length + Data + Checksum
+// Number + Stuffing + Type + Meta + Length + Data + Checksum
 #define PACKET_ENCODED_MAX_LENGTH (PACKET_DECODED_MAX_LENGTH + 3)
 
-// Stuffing + Number + Type + Meta + Length + Data + Checksum + Frame
+// Number + Stuffing + Type + Meta + Length + Data + Checksum + Frame
 #define PACKET_RAW_MAX_LENGTH (PACKET_ENCODED_MAX_LENGTH + 1)
 
 // Declaration of system used message bytes

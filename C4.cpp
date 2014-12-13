@@ -85,6 +85,16 @@ bool initC4Port(C4Port * port, char * filename, void (*packetHandler)(Packet pac
     port->rxLength = 0;
     port->ticksSinceLastACK = 0;
     
+    // Init packet numbers
+    for(uint8_t i = 0; i < TX_WINDOW_SIZE; ++i)
+        port->txBuffer[i][0] = i + 1;
+    
+    if(pthread_mutex_init(&port->lock, NULL) != 0)
+    {
+        printf("\n mutex init failed\n");
+        return false;
+    }
+    
     return true;
     
 }
@@ -291,10 +301,12 @@ bool sendReliablePacket(C4Port * port, Packet * packet) {
 	// We can only send packets when a slot is empty
     if(!isSlotAve(port)) return false;
     
+    pthread_mutex_lock(&port->lock);
+    
 	port->txLength[getNextAveSlot(port)] =
         encodePacket(packet, port->txBuffer[getNextAveSlot(port)] + 1) + 1;
     
-    port->txBuffer[getNextAveSlot(port)][0] = getNextAveSlot(port) + 1;
+    //port->txBuffer[getNextAveSlot(port)][0] = getNextAveSlot(port) + 1;
     
     //cout << dec << port->txLength << endl;
     
@@ -305,6 +317,8 @@ bool sendReliablePacket(C4Port * port, Packet * packet) {
     
     // Increment pendingMax, since we are going to store a new packet
     ++ port->windowSize;
+    
+    pthread_mutex_unlock(&port->lock);
     
 	return true;
 
@@ -331,6 +345,8 @@ void evaluateRxData(C4Port * port) {
     //for(uint8_t i = 0; i < port->rxLength; ++i)
     //    cout << superhex << (unsigned) port->rxBuffer[i] << " ";
     //cout << endl << endl;
+    
+    pthread_mutex_lock(&port->lock);
     
 	if(isACK(port->rxBuffer, port->rxLength)) {
         
@@ -392,6 +408,8 @@ void evaluateRxData(C4Port * port) {
     
     // Clear the RX buffer
     port->rxLength = 0;
+    
+    pthread_mutex_unlock(&port->lock);
 
 }
 
@@ -427,6 +445,8 @@ void updatePort(C4Port * port) {
         
     }
     
+    pthread_mutex_lock(&port->lock);
+    
     // Are packets pending?
     if(port->windowSize)
         ++(port->ticksSinceLastACK);
@@ -443,7 +463,12 @@ void updatePort(C4Port * port) {
         
         for(uint8_t i = 0; i < port->windowSize; ++i) {
             
-            //cout << "Resending: " << (unsigned) slot << " | " << (unsigned) port->txBuffer[slot][0] << endl;
+            cout << "Resending: " << (unsigned) slot << " | " << (unsigned) port->txBuffer[slot][0] << " | ";
+            
+            for(uint8_t i = 0; i < port->txLength[slot]; ++i)
+                cout << superhex << (unsigned) port->txBuffer[slot][i] << " ";
+            
+            cout << endl;
             
             // Resend a packet
             writeDataToPort(port, port->txBuffer[slot], port->txLength[slot]);
@@ -457,6 +482,7 @@ void updatePort(C4Port * port) {
         
     }
     
+    pthread_mutex_unlock(&port->lock);
     
 }
 
