@@ -25,14 +25,16 @@ typedef struct {
 
 	// Where are we reading / writting to / from?
     int fileDescriptor;
+    
+    // Packet handler function, will be called whenever a valid packet is recieved
+    // Must be capable of executing entirely within a 1ms window
+    void (*packetHandler) (Packet packet);
 
 	// Recieved byte buffer, used to store the incomming bytes of the next packet
 	uint8_t rxBuffer[PACKET_RAW_MAX_LENGTH];
 	uint16_t rxLength;
     
     uint8_t nextExpectedPacketNum;
-    
-    uint16_t ticksSinceLastACK;
 
 	// Packet either to be sent or currently waiting for ACK
 	uint8_t txBuffer[TX_WINDOW_SIZE][PACKET_RAW_MAX_LENGTH];
@@ -43,10 +45,9 @@ typedef struct {
     
     // Lowest slot # currently in use
     uint8_t lowestSlot;
-
-	// Packet handler function, will be called whenever a valid packet is recieved
-	// Must be capable of executing entirely within a 1ms window
-	void (*packetHandler) (Packet packet);
+    
+    // Timeouts
+    uint16_t ticksSinceLastACK;
 
 } C4Port;
 

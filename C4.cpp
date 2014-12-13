@@ -77,7 +77,7 @@ bool initC4Port(C4Port * port, char * filename, void (*packetHandler)(Packet pac
     // Setup genaric port stuff
     port->fileDescriptor = fileDescriptor;
     port->packetHandler = packetHandler;
-    port->nextExpectedPacketNum = 0;
+    port->nextExpectedPacketNum = 1;
     
     port->windowSize = 0;
     port->lowestSlot = 0;
@@ -126,13 +126,10 @@ inline uint8_t computeChecksum(uint8_t * data, uint8_t length) {
 
 // Returns true if a packet checks out, false otherwise
 inline bool validateChecksum(uint8_t * data, uint8_t length, uint8_t providedChecksum) {
-
-	// Does the computed checksum match the provided checksum?
 	return (computeChecksum(data, length) == providedChecksum);
-
 }
 
-// Takes in a packet struct and writes an encoded packet to the specified buffer
+// Takes in a Packet struct and writes an encoded packet to the specified buffer
 // Returns the length of bytes written
 uint8_t encodePacket(Packet * packet, uint8_t * buffer) {
     
@@ -163,11 +160,6 @@ uint8_t encodePacket(Packet * packet, uint8_t * buffer) {
 	// Add the checksum byte
 	data[length] = computeChecksum(data + 1, length - 1);
 	length++;
-    
-    //cout << "Encoding packet of length " << dec << (unsigned) length << endl << endl;
-
-	// At this point all the data to be sent is stored in data,
-	// we'll now enode that data
 
 	// Encode!
 
@@ -208,12 +200,6 @@ uint8_t encodePacket(Packet * packet, uint8_t * buffer) {
 // Takes in a packet buffer and writes a regular packet
 // Returns true on success, false otherwise
 bool decodePacket(Packet * packet, uint8_t * buffer, uint8_t length) {
-    
-    //cout << "Decoding..." << endl;
-    
-    //for(uint8_t i = 0; i < length; ++i)
-    //    cout << superhex << (unsigned) buffer[i] << " ";
-    //cout << endl << endl;
 
 	// Vars needed for the decode step
 	size_t rIndex = 0, wIndex = 0, lastZeroEnc;
@@ -381,7 +367,7 @@ void evaluateRxData(C4Port * port) {
                 // Call the packet handler
                 port->packetHandler(packet);
                 
-            } else if(port->rxBuffer[0] == (port->nextExpectedPacketNum + 1)) {
+            } else if(port->rxBuffer[0] == (port->nextExpectedPacketNum)) {
                 
                 // This is the packet we're expecting
                 
@@ -389,14 +375,14 @@ void evaluateRxData(C4Port * port) {
                 sendACK(port, port->rxBuffer[0]);
                 
                 // Advance nextExpectedPacketNum
-                port->nextExpectedPacketNum = getNextSlot(port->nextExpectedPacketNum);
+                port->nextExpectedPacketNum = 1 + getNextSlot(port->nextExpectedPacketNum - 1);
                 
                 // Call the packet handler
                 port->packetHandler(packet);
                 
             } else {
                 
-                cerr << "Good packet, but it is not the expected value. Exp: " << (unsigned) (port->nextExpectedPacketNum + 1) << " Rec: " << (unsigned) port->rxBuffer[0] << endl;
+                cerr << "Good packet, but it is not the expected value. Exp: " << (unsigned) (port->nextExpectedPacketNum) << " Rec: " << (unsigned) port->rxBuffer[0] << endl;
                 
             }
 
