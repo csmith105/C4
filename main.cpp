@@ -12,19 +12,26 @@
 
 using namespace std;
 
-int main(int argc, char * argv[2]) {
+int main(int argc, char * argv[3]) {
     
     // Cody's COBS Communication Code
     
     C4Port * port1 = new C4Port;
     //C4Port * port2 = new C4Port;
     
-    if(argc == 1)
-        argv[1] = "/dev/tty.usbserial-A603UC7L";
+    if(argc == 1 || argc == 2)
+        argv[2] = "/dev/tty.usbserial-A6026PNO";
     
+    cout << argv[2] << endl;
+    
+    int pps = 100;
+    
+    if(argc >= 1)
+        pps = atoi(argv[1]);
+        
     //char fileToOpen2[] = "/dev/tty.usbserial-A603UBJX";
     
-    if(!initC4Port(port1, argv[1], packetHandler)) {
+    if(!initC4Port(port1, argv[2], packetHandler)) {
         cout << "Failed to init port1" << endl;
         return 1;
     }
@@ -73,6 +80,7 @@ int main(int argc, char * argv[2]) {
         
         packet.length = data[0] % 17;
         
+        
         if(sendReliablePacket(port1, &packet)) {
             ++totalPackets;
             ++packetsSentSinceLastSecond;
@@ -80,13 +88,13 @@ int main(int argc, char * argv[2]) {
 
         ++i;
         
-        if(i >= 1000/3) {
+        if(i >= pps) {
             cout << dec << setfill(' ') << setw(7) << (unsigned) packetsSentSinceLastSecond << " pps | " << setw(10) << (unsigned) totalPackets << " total" << endl;
             packetsSentSinceLastSecond = 0;
             i = 0;
         }
         
-        usleep(3000);
+        usleep(1000000 / pps);
         
     }
     

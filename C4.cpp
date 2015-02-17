@@ -14,7 +14,7 @@
 using namespace std;
 
 // Const byte values for internal protocol messages
-const uint8_t ACK = 0xAA, FRAME = 0x00, URP_HEADER = 0xFF;
+const uint8_t ACK = 0xAA, FRAME = 0x00, URP_HEADER = 0xFF, PLACE = 0xFE;
 
 bool initC4Port(C4Port * port, char * filename, void (*packetHandler)(Packet packet)) {
     
@@ -84,6 +84,7 @@ bool initC4Port(C4Port * port, char * filename, void (*packetHandler)(Packet pac
     
     port->rxLength = 0;
     port->ticksSinceLastACK = 0;
+    port->bounceCount = 0;
     
     // Init packet numbers
     for(uint8_t i = 0; i < TX_WINDOW_SIZE; ++i)
@@ -103,6 +104,12 @@ inline uint8_t getNextSlot(uint8_t previous) {
     
     // Generates numbers from 0 to TX_WINDOW_SIZE - 1
     return ((previous + 1) % TX_WINDOW_SIZE);
+    
+}
+
+uint8_t getNextAveSlot(C4Port * port) {
+    
+    return (port->lowestSlot + port->windowSize) % TX_WINDOW_SIZE;
     
 }
 
@@ -289,11 +296,6 @@ void sendUnreliablePacket(C4Port * port, Packet * packet) {
     
 }
 
-uint8_t getNextAveSlot(C4Port * port) {
-    
-    return (port->lowestSlot + port->windowSize) % TX_WINDOW_SIZE;
-    
-}
 
 // Returns true on packet send, false otherwise
 bool sendReliablePacket(C4Port * port, Packet * packet) {
@@ -315,7 +317,7 @@ bool sendReliablePacket(C4Port * port, Packet * packet) {
 	// Send it
 	writeDataToPort(port, port->txBuffer[getNextAveSlot(port)], port->txLength[getNextAveSlot(port)]);
     
-    // Increment pendingMax, since we are going to store a new packet
+    // Increment windowSize, since we are going to store a new packet
     ++ port->windowSize;
     
     pthread_mutex_unlock(&port->lock);
@@ -330,12 +332,26 @@ inline bool isACK(uint8_t * data, uint8_t length) {
     
 }
 
+inline bool isPLACE(uint8_t * data, uint8_t length) {
+    
+    return (length == 3 && data[0] == PLACE);
+    
+}
+
 void sendACK(C4Port * port, uint8_t number) {
     
     uint8_t data[] = { ACK, number, FRAME };
     
     write(port->fileDescriptor, data, 3);
 
+}
+
+void sendPLACE(C4Port * port) {
+    
+    uint8_t data[] = { PLACE, (uint8_t) (port->lowestSlot + 1), FRAME };
+    
+    write(port->fileDescriptor, data, 3);
+    
 }
 
 // Must clear the rx buffer on completion
@@ -361,7 +377,8 @@ void evaluateRxData(C4Port * port) {
             //cout << "Recieved ACK for packet #" << (unsigned) port->rxBuffer[1] << endl;
             
             port->lowestSlot = getNextSlot(port->lowestSlot);
-            -- port->windowSize;
+            
+            --port->windowSize;
             
         } else {
             
@@ -369,7 +386,21 @@ void evaluateRxData(C4Port * port) {
             
         }
 
-	} else {
+	} else if(isPLACE(port->rxBuffer, port->rxLength)) {
+        
+        cout << "Recieved PLACE" << endl;
+        
+        // We care about the place packet when the bounce number goes beyond it's trigger
+        if(port->bounceCount > RX_BOUNCE_LIMIT) {
+            
+            cout << endl << "RESETTING PLACE!" << endl << endl;
+            port->nextExpectedPacketNum = port->rxBuffer[1];
+            
+        }
+        
+            
+        
+    } else {
         
 		// We've recieved something that isn't an ACK, decode it
 		Packet packet;
@@ -387,6 +418,9 @@ void evaluateRxData(C4Port * port) {
                 
                 // This is the packet we're expecting
                 
+                // Set bounceCount to zero
+                port->bounceCount = 0;
+                
                 // Good packet - Send ACK
                 sendACK(port, port->rxBuffer[0]);
                 
@@ -399,6 +433,9 @@ void evaluateRxData(C4Port * port) {
             } else {
                 
                 cerr << "Good packet, but it is not the expected value. Exp: " << (unsigned) (port->nextExpectedPacketNum) << " Rec: " << (unsigned) port->rxBuffer[0] << endl;
+                
+                // Increment bounceCount
+                ++port->bounceCount;
                 
             }
 
@@ -460,6 +497,9 @@ void updatePort(C4Port * port) {
         // so we must resend all of the packets currently pending
         
         uint8_t slot = port->lowestSlot;
+        
+        // Send place packet
+        sendPLACE(port);
         
         for(uint8_t i = 0; i < port->windowSize; ++i) {
             

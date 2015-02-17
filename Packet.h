@@ -20,6 +20,7 @@
 extern const uint8_t ACK;
 extern const uint8_t FRAME;
 extern const uint8_t URP_HEADER;
+extern const uint8_t PLACE;
 
 // Packet Formast:
 //

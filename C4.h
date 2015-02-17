@@ -19,6 +19,10 @@
 #define PACKET_TIMEOUT 400
 #define IDLE_TIMEOUT 10000
 
+// How many bounces are acceptable before place is considered?
+// (should be grater than the window size)
+#define RX_BOUNCE_LIMIT 16
+
 #define superhex uppercase << setfill('0') << setw(2) << hex
 
 typedef struct {
@@ -48,8 +52,11 @@ typedef struct {
     // Lowest slot # currently in use
     uint8_t lowestSlot;
     
-    // Timeouts
+    // A count of the number of updates (ticks) since an ACK has been recieved
     uint16_t ticksSinceLastACK;
+    
+    // A count of the number of rejected packets
+    uint8_t bounceCount;
 
 } C4Port;
 
