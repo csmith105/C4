@@ -57,6 +57,9 @@ typedef struct {
     
     // A count of the number of rejected packets
     uint8_t bounceCount;
+    
+    // Wait for next place command
+    bool waitForPlace;
 
 } C4Port;
 

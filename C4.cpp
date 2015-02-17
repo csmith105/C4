@@ -85,6 +85,7 @@ bool initC4Port(C4Port * port, char * filename, void (*packetHandler)(Packet pac
     port->rxLength = 0;
     port->ticksSinceLastACK = 0;
     port->bounceCount = 0;
+    port->waitForPlace = true;
     
     // Init packet numbers
     for(uint8_t i = 0; i < TX_WINDOW_SIZE; ++i)
@@ -391,14 +392,13 @@ void evaluateRxData(C4Port * port) {
         cout << "Recieved PLACE" << endl;
         
         // We care about the place packet when the bounce number goes beyond it's trigger
-        if(port->bounceCount > RX_BOUNCE_LIMIT) {
+        if(port->bounceCount > RX_BOUNCE_LIMIT || port->waitForPlace) {
             
             cout << endl << "RESETTING PLACE!" << endl << endl;
             port->nextExpectedPacketNum = port->rxBuffer[1];
+            port->waitForPlace = false;
             
         }
-        
-            
         
     } else {
         
@@ -418,21 +418,28 @@ void evaluateRxData(C4Port * port) {
                 
                 // This is the packet we're expecting
                 
-                // Set bounceCount to zero
-                port->bounceCount = 0;
-                
-                // Good packet - Send ACK
-                sendACK(port, port->rxBuffer[0]);
-                
-                // Advance nextExpectedPacketNum
-                port->nextExpectedPacketNum = 1 + getNextSlot(port->nextExpectedPacketNum - 1);
-                
-                // Call the packet handler
-                port->packetHandler(packet);
+                if(!port->waitForPlace) {
+                    
+                    // Set bounceCount to zero
+                    port->bounceCount = 0;
+                    
+                    // Good packet - Send ACK
+                    sendACK(port, port->rxBuffer[0]);
+                    
+                    // Advance nextExpectedPacketNum
+                    port->nextExpectedPacketNum = 1 + getNextSlot(port->nextExpectedPacketNum - 1);
+                    
+                    // Call the packet handler
+                    port->packetHandler(packet);
+                    
+                }
                 
             } else {
                 
                 cerr << "Good packet, but it is not the expected value. Exp: " << (unsigned) (port->nextExpectedPacketNum) << " Rec: " << (unsigned) port->rxBuffer[0] << endl;
+                
+                // ACK the packet anyway, to avoid a stall when an ACK is lost
+                sendACK(port, port->rxBuffer[0]);
                 
                 // Increment bounceCount
                 ++port->bounceCount;
