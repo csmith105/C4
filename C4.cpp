@@ -2,14 +2,23 @@
 
 #include <iomanip>
 #include <cstdlib>
-#include <stdio.h>      // Standard input/output definitions
+#include <stdio.h>
+#include <string.h>
+
+#include "Packet.h"
+
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+
 #include <unistd.h>     // UNIX standard function definitions
 #include <fcntl.h>      // File control definitions
 #include <errno.h>      // Error number definitions
 #include <termios.h>    // POSIX terminal control definitions
-#include <string.h>
 
-#include "Packet.h"
+#elif defined(_WIN32) || defined(_WIN64)
+
+#include <windows.h>
+
+#endif
 
 using namespace std;
 
@@ -17,6 +26,8 @@ using namespace std;
 const uint8_t ACK = 0xAA, FRAME = 0x00, URP_HEADER = 0xFF, PLACE = 0xFE;
 
 bool initC4Port(C4Port * port, char * filename, void (*packetHandler)(Packet packet)) {
+    
+    #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     
     // Open the given file as read/write, don't become the controlling terminal, don't block
     int fileDescriptor = open(filename, O_RDWR | O_NOCTTY | O_SYNC | O_NONBLOCK);
@@ -74,6 +85,30 @@ bool initC4Port(C4Port * port, char * filename, void (*packetHandler)(Packet pac
     // Seek to end of file
     lseek(fileDescriptor, 0, SEEK_END);
     
+    if(pthread_mutex_init(&port->lock, NULL) != 0) {
+        
+        printf("\n mutex init failed\n");
+        return false;
+        
+    }
+    
+    #elif defined(_WIN32) || defined(_WIN64)
+    
+    HANDLE hComm;
+    
+    hComm = CreateFile(gszPort,
+                       GENERIC_READ | GENERIC_WRITE,
+                       0,
+                       0,
+                       OPEN_EXISTING,
+                       FILE_FLAG_OVERLAPPED,
+                       0);
+    
+    if (hComm == INVALID_HANDLE_VALUE)
+        // error opening port; abort
+    
+    #endif
+        
     // Setup genaric port stuff
     port->fileDescriptor = fileDescriptor;
     port->packetHandler = packetHandler;
@@ -90,12 +125,6 @@ bool initC4Port(C4Port * port, char * filename, void (*packetHandler)(Packet pac
     // Init packet numbers
     for(uint8_t i = 0; i < TX_WINDOW_SIZE; ++i)
         port->txBuffer[i][0] = i + 1;
-    
-    if(pthread_mutex_init(&port->lock, NULL) != 0)
-    {
-        printf("\n mutex init failed\n");
-        return false;
-    }
     
     return true;
     
@@ -122,9 +151,13 @@ inline bool isSlotAve(C4Port * port) {
 
 void writeDataToPort(C4Port * port, uint8_t * data, size_t length) {
     
+    #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+    
     // Write the packet to the source stream
     if(write(port->fileDescriptor, data, length) == -1 && write(port->fileDescriptor, data, 1) == -1)
         cerr << "Write error: " << strerror(errno) << endl;
+    
+    #endif
     
 }
 
@@ -343,7 +376,11 @@ void sendACK(C4Port * port, uint8_t number) {
     
     uint8_t data[] = { ACK, number, FRAME };
     
+    #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+    
     write(port->fileDescriptor, data, 3);
+    
+    #endif /* define(__unix__) || define(__linux__) || define(__APPLE__) */
 
 }
 
@@ -351,7 +388,11 @@ void sendPLACE(C4Port * port) {
     
     uint8_t data[] = { PLACE, (uint8_t) (port->lowestSlot + 1), FRAME };
     
+    #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+    
     write(port->fileDescriptor, data, 3);
+    
+    #endif
     
 }
 
@@ -462,7 +503,13 @@ void updatePort(C4Port * port) {
     // Attempt to read in however many bytes are left in our packet buffer
     while(port->rxLength < PACKET_RAW_MAX_LENGTH) {
         
-        ssize_t readVal = read(port->fileDescriptor, port->rxBuffer + port->rxLength, 1);
+        ssize_t readVal;
+        
+        #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+        
+        readVal = read(port->fileDescriptor, port->rxBuffer + port->rxLength, 1);
+        
+        #endif
         
         if(readVal == -1) {
             
@@ -541,7 +588,12 @@ void * updateThread(void * port) {
         updatePort((C4Port *) port);
         
         // Sleep
+        
+        #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+        
         usleep(UPDATE_INTERVAL);
+        
+        #endif
         
     }
     

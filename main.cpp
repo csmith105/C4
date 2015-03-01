@@ -98,13 +98,13 @@ int main(int argc, char * argv[3]) {
         
     }
     
-    pthread_join(thread1, NULL);
+    //pthread_join(thread1, NULL);
     //pthread_join(thread2, NULL);
     
-    close(port1->fileDescriptor);
+    //close(port1->fileDescriptor);
     //close(port2->fileDescriptor);
     
-    delete port1;
+    //delete port1;
     //delete port2;
     
     return 0;
